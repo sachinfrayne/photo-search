@@ -79,13 +79,14 @@ final class QdrantClient: @unchecked Sendable {
     }
 
     /// Every point's payload (no vectors), paging through the whole collection.
-    func scrollAll(_ collection: String, fields: [String]? = nil) async throws -> [Point] {
+    func scrollAll(_ collection: String, fields: [String]? = nil, filter: JSON? = nil) async throws -> [Point] {
         var out: [Point] = []
         var offset: Any? = nil
         repeat {
             var body: JSON = ["limit": 1000, "with_vector": false]
             body["with_payload"] = fields.map { $0 as Any } ?? true
             if let offset { body["offset"] = offset }
+            if let filter { body["filter"] = filter }
             let r = try await call("POST", "/collections/\(collection)/points/scroll", body)
             let result = r["result"] as? JSON ?? [:]
             out += Self.points(result["points"])

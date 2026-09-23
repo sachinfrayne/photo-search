@@ -55,6 +55,9 @@ PhotoSearch.app
     Spain", "2025", "sunset in October"). Time words like "sunrise", "sunset" and
     "night" filter on the hour the photo was taken, because the model can't tell a
     sunrise from a sunset but the camera clock can.
+    Filter words are kept out of the text sent to the model, since "2025" says
+    nothing about what's in a picture. A query that is only filters ("2025",
+    "photos from August") simply lists those photos by date.
   - Apple Vision scene labels add a small score boost through a Qdrant formula query.
   - Each query is calibrated against a random sample of the library, so only photos
     that stand out for *that* query are shown. Raw CLIP scores aren't comparable

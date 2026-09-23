@@ -121,7 +121,13 @@ final class SearchService: @unchecked Sendable {
         let using = modelID ?? searchModel
         guard let model = models[using] else { return [] }
         let parsed = parse(query)
-        let vector = try model.embed(text: "a photo of \(query)")
+        // Only a filter ("2025", "spain", "october"): list those photos by date.
+        guard !parsed.visualText.isEmpty else {
+            return try await client.scrollAll(Indexer.collection, filter: parsed.filter)
+                .map { Photo(id: $0.id, payload: $0.payload) }
+                .sorted { ($0.taken ?? .distantPast) > ($1.taken ?? .distantPast) }
+        }
+        let vector = try model.embed(text: "a photo of \(parsed.visualText)")
 
         // A filter that matches nothing ("sunrise 2026" in a 2025 library)
         // means nothing matches; don't quietly widen the search. Unknown
@@ -151,7 +157,21 @@ final class SearchService: @unchecked Sendable {
     struct Parsed {
         var filter: JSON?
         var labelWords: [String]
+        /// What goes to the text encoder: the query minus words that became
+        /// metadata filters (places, months, years). "2025" says nothing about
+        /// what's in a picture and only muddies the embedding. Time-of-day
+        /// words stay, because a sunset also looks like one.
+        var visualText: String
     }
+
+    /// Connector words left dangling once filter words are taken out
+    /// ("church in" from "church in spain").
+    private static let connectors: Set<String> = ["in", "from", "during", "of", "at", "on", "the", "taken", "and", "a", "an"]
+    /// Words that describe the request, not the picture ("show me photos of").
+    private static let fillers: Set<String> = [
+        "photo", "photos", "picture", "pictures", "pic", "pics", "image", "images",
+        "show", "me", "my", "all", "find", "some",
+    ]
 
     func parse(_ query: String) -> Parsed {
         var lowered = " " + query.lowercased() + " "
@@ -167,20 +187,31 @@ final class SearchService: @unchecked Sendable {
 
         let words = lowered.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
         var labelWords: [String] = []
+        var visual: [String] = []
         for word in words {
             if let m = Self.months.firstIndex(of: word) {
                 must.append(["key": "month", "match": ["value": m + 1]])
-            } else if let range = Self.timesOfDay[word] {
-                must.append(Self.hourCondition(range))
+                continue
             } else if word.count == 4, let year = Int(word), (1900...2100).contains(year) {
                 must.append(["key": "year", "match": ["value": year]])
+                continue
+            }
+            if !Self.fillers.contains(word) { visual.append(word) }
+            if let range = Self.timesOfDay[word] {
+                must.append(Self.hourCondition(range))
             } else if word.count > 2, !Self.stopwords.contains(word) {
                 labelWords.append(word)
                 // Crude singular so "paintings" matches the "painting" label.
                 if word.hasSuffix("s") && !word.hasSuffix("ss") { labelWords.append(String(word.dropLast())) }
             }
         }
-        return Parsed(filter: must.isEmpty ? nil : ["must": must], labelWords: labelWords)
+        while let first = visual.first, Self.connectors.contains(first) { visual.removeFirst() }
+        while let last = visual.last, Self.connectors.contains(last) { visual.removeLast() }
+        return Parsed(
+            filter: must.isEmpty ? nil : ["must": must],
+            labelWords: labelWords,
+            visualText: visual.joined(separator: " ")
+        )
     }
 
     private static func hourCondition(_ r: (from: Int, to: Int)) -> JSON {

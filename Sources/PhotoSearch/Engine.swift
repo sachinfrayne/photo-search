@@ -79,7 +79,8 @@ enum CLI {
                     let start = Date()
                     let results = try await engine.search.search(args[i])
                     let ms = Int(Date().timeIntervalSince(start) * 1000)
-                    print("\n\"\(args[i])\" → \(results.count) results (\(ms) ms), topZ \(String(format: "%.2f", engine.search.lastTopZ)), filter: \(engine.search.parse(args[i]).filter.map { "\($0)" } ?? "none")")
+                    let parsed = engine.search.parse(args[i])
+                    print("\n\"\(args[i])\" → \(results.count) results (\(ms) ms), embedded: \"\(parsed.visualText)\", filter: \(parsed.filter.map { "\($0)" } ?? "none")")
                     for r in results.prefix(12) {
                         print(String(format: "  %.3f  %@  %@", r.score, r.country ?? "-", r.url.lastPathComponent))
                     }
