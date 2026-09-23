@@ -181,7 +181,13 @@ final class AppModel: ObservableObject {
     /// Opens Qdrant's web dashboard in the browser. The API key changes every
     /// launch, so it's put on the clipboard for the dashboard's key prompt.
     func openDashboard() {
-        guard phase == .ready else { return }
+        guard phase == .ready else {
+            let alert = NSAlert()
+            alert.messageText = "PhotoSearch is still starting"
+            alert.informativeText = "Try again in a moment, once your photos are showing."
+            alert.runModal()
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "Open the search database?"
         alert.informativeText = """

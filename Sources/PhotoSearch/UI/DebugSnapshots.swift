@@ -33,11 +33,10 @@ enum DebugSnapshots {
             save(out.appendingPathComponent("4-viewer-next.png"))
             model.viewing = nil
             model.query = ""
-            (NSApp.delegate as? AppDelegate)?.installDashboardItem()
             var report = ""
             for item in NSApp.mainMenu?.items ?? [] {
                 for sub in item.submenu?.items ?? [] where !sub.isSeparatorItem {
-                    report += "\(item.title) > \(sub.title)\(sub.isAlternate ? "  [alternate, option]" : "")\n"
+                    report += "\(item.title) > \(sub.title)\(sub.isEnabled ? "" : "  [disabled]")\n"
                 }
             }
             if let url = model.dashboardURL,

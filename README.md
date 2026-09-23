@@ -71,8 +71,7 @@ A single native binary gives the same Qdrant with no setup.
 
 ### Looking inside Qdrant
 
-Hold **Option** while the File menu is open: "Show Photos Folder in Finder" turns
-into **Open Search Database…**. That opens Qdrant's own web dashboard (bundled with
+Choose **File › Open Search Database…**. That opens Qdrant's own web dashboard (bundled with
 the app) in your browser. There you can browse the `photos` collection, inspect
 payloads and run queries. Qdrant runs with a per-launch API key, which the app copies
 to the clipboard. Paste it when the dashboard asks.
