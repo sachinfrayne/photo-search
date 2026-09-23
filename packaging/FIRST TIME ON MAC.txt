@@ -1,0 +1,32 @@
+PhotoSearch — first time on Mac
+================================
+
+macOS blocks apps downloaded from the internet until you allow them once.
+After this one-time step, just double-click PhotoSearch.app as usual.
+
+
+OPTION 1 — System Settings (no Terminal)
+----------------------------------------
+
+1. Double-click PhotoSearch.app once (macOS will block it — that's expected)
+2. Open System Settings → Privacy & Security
+3. Scroll down — you should see a message about PhotoSearch being blocked
+4. Click "Open Anyway", then confirm
+
+If you don't see "Open Anyway", use Option 2.
+
+
+OPTION 2 — Terminal (always works; ~1 minute)
+---------------------------------------------
+
+1. Press Cmd+Space, type Terminal, press Enter
+2. Click in the Terminal window and paste this line (do NOT press Enter yet):
+
+     xattr -dr com.apple.quarantine 
+
+   (note the space at the end)
+
+3. Drag the folder that contains PhotoSearch.app from Finder into the
+   Terminal window (this fills in the folder path for you)
+4. Press Enter
+5. Double-click PhotoSearch.app — you're done

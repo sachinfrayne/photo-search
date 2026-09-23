@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      # Package.swift depends on ../photo-sorter (PhotoSorterCore), so check
+      # both repos out side by side.
+      - uses: actions/checkout@v5
+        with:
+          path: photo-search
+      - uses: actions/checkout@v5
+        with:
+          repository: sachinfrayne/photo-sorter
+          path: photo-sorter
+      - uses: actions/cache@v4
+        with:
+          path: photo-search/vendor
+          key: vendor-${{ hashFiles('photo-search/scripts/fetch_deps.sh') }}
+      - run: ./build_mac.sh
+        working-directory: photo-search
+      - uses: actions/upload-artifact@v6
+        with:
+          name: PhotoSearch-mac
+          path: photo-search/dist/PhotoSearch.dmg

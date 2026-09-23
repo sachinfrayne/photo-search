@@ -1,0 +1,16 @@
+PhotoSearch bundles the following third-party components.
+
+Qdrant (vector search engine)
+  https://github.com/qdrant/qdrant
+  Licensed under the Apache License 2.0.
+
+MobileCLIP-S2 Core ML models (image and text encoders)
+  https://huggingface.co/apple/coreml-mobileclip
+  Copyright (C) 2024 Apple Inc.
+  Apple Machine Learning Research Model is licensed under the Apple Machine
+  Learning Research Model License Agreement (research use only):
+  https://github.com/apple/ml-mobileclip/blob/main/LICENSE_MODELS
+
+CLIP tokenizer vocabulary and BPE merges, and tokenizer code adapted from
+Hugging Face swift-coreml-transformers (Apache License 2.0) via Apple's
+ml-mobileclip demo app (MIT License, Copyright (C) 2024 Apple Inc.).
