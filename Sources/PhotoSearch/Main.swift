@@ -4,7 +4,7 @@ import Foundation
 enum Main {
     static func main() {
         let args = Array(CommandLine.arguments.dropFirst())
-        if args.contains(where: { ["--index", "--search", "--labels", "--import"].contains($0) }) {
+        if args.contains(where: { ["--index", "--search", "--compare", "--labels", "--import"].contains($0) }) {
             Task { exit(await CLI.run(args)) }
             dispatchMain()
         }

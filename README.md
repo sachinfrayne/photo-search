@@ -67,6 +67,45 @@ PhotoSearch.app
 Why not Docker: it would require every user to install and run Docker Desktop.
 A single native binary gives the same Qdrant with no setup.
 
+## For power users
+
+### Looking inside Qdrant
+
+Hold **Option** while the File menu is open: "Show Photos Folder in Finder" turns
+into **Open Search Database…**. That opens Qdrant's own web dashboard (bundled with
+the app) in your browser. There you can browse the `photos` collection, inspect
+payloads and run queries. Qdrant runs with a per-launch API key, which the app copies
+to the clipboard. Paste it when the dashboard asks.
+
+### Trying other models
+
+Create `~/Library/Application Support/PhotoSearch/config.json`:
+
+```json
+{
+  "searchModel": "mobileclip-s2",
+  "compareModels": ["mobileclip-blt"]
+}
+```
+
+- `searchModel` is the model the app searches with. Built-in IDs are
+  `mobileclip-s0`, `mobileclip-s1`, `mobileclip-s2` (default, bundled) and
+  `mobileclip-blt`.
+- `compareModels` are indexed alongside it. Each model gets its own named vector
+  in the same Qdrant collection.
+- Model files other than S2 go in `~/Library/Application Support/PhotoSearch/Models/`.
+  `./scripts/fetch_deps.sh --extra-models` downloads MobileCLIP-B (LT) into `vendor/models`.
+- Other CLIP-style Core ML models that use the CLIP tokenizer can be added under
+  `"models"`, with the fields `id`, `imageModel`, `textModel`, `dimensions`,
+  `imageInput`, `textInput` and `output`.
+- Changing the set of models rebuilds the index on the next launch.
+
+Then compare the same searches across every configured model:
+
+```bash
+.build/debug/PhotoSearch --compare "painting in church" --compare "beach"
+```
+
 ## Building
 
 Requires an Apple Silicon Mac with the Xcode Command Line Tools
@@ -96,6 +135,7 @@ data folder unless `PHOTOSEARCH_DATA` points elsewhere:
 .build/debug/PhotoSearch --index ~/Pictures/Library --search "painting in church"
 .build/debug/PhotoSearch --labels                      # Vision labels per photo
 .build/debug/PhotoSearch --import <library> <folder>   # same as dropping onto the window
+.build/debug/PhotoSearch --compare "<query>"           # same search with every configured model
 ```
 
 Other development variables: `PHOTOSEARCH_LIBRARY` overrides the photos folder, and

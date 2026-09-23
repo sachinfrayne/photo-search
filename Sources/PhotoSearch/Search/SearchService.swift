@@ -42,12 +42,16 @@ final class SearchService: @unchecked Sendable {
     static let labelBoost = 0.03
     static let sampleSize = 512
 
-    private var sample: [[Float]] = []
+    /// Per model: vectors of a random sample of the library, for calibration.
+    private var sample: [String: [[Float]]] = [:]
     /// How strongly the best result of the last search stood out (debug aid).
     private(set) var lastTopZ = 0.0
 
     private let client: QdrantClient
-    private let model: EmbeddingModel
+    /// Models by id; `searchModel` answers searches in the app, the others
+    /// are only used by `--compare`.
+    private let models: [String: EmbeddingModel]
+    let searchModel: String
     private var places: [(name: String, field: String, value: String)] = []
     private let lock = NSLock()
 
@@ -75,9 +79,10 @@ final class SearchService: @unchecked Sendable {
         "are", "front", "standing", "sitting", "near", "next", "inside", "outside",
     ]
 
-    init(client: QdrantClient, model: EmbeddingModel) {
+    init(client: QdrantClient, models: [EmbeddingModel]) {
         self.client = client
-        self.model = model
+        self.models = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+        searchModel = models[0].id
     }
 
     /// Refreshes the known place names (call after indexing).
@@ -91,9 +96,11 @@ final class SearchService: @unchecked Sendable {
         // Longest first so "united kingdom" wins over a hypothetical "kingdom".
         found.sort { $0.0.count > $1.0.count }
 
-        let sampled = (try? await client.query(Indexer.collection, body: [
+        let points = (try? await client.query(Indexer.collection, body: [
             "query": ["sample": "random"], "limit": Self.sampleSize, "with_vector": true,
-        ]))?.compactMap(\.vector) ?? []
+        ])) ?? []
+        var sampled: [String: [[Float]]] = [:]
+        for id in models.keys { sampled[id] = points.compactMap { $0.vectors[id] } }
         lock.withLock {
             places = found
             sample = sampled
@@ -106,19 +113,22 @@ final class SearchService: @unchecked Sendable {
             .sorted { ($0.taken ?? .distantPast) > ($1.taken ?? .distantPast) }
     }
 
-    func search(_ text: String) async throws -> [Photo] {
+    /// Searches with the app's search model, or with `modelID` (for comparing).
+    func search(_ text: String, using modelID: String? = nil) async throws -> [Photo] {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return try await allPhotos() }
 
+        let using = modelID ?? searchModel
+        guard let model = models[using] else { return [] }
         let parsed = parse(query)
         let vector = try model.embed(text: "a photo of \(query)")
 
         // A filter that matches nothing ("sunrise 2026" in a 2025 library)
         // means nothing matches; don't quietly widen the search. Unknown
         // places never become filters, so "church in italy" still works.
-        let results = try await run(vector: vector, filter: parsed.filter, labels: parsed.labelWords)
+        let results = try await run(vector: vector, using: using, filter: parsed.filter, labels: parsed.labelWords)
         guard let top = results.first?.score else { return [] }
-        let (mean, std) = baseline(for: vector)
+        let (mean, std) = baseline(for: vector, model: using)
         lastTopZ = std > 0 ? (top - mean) / std : 0
         let cutoff = max(top - Self.relativeMargin, mean + Self.minZScore * std)
         // Nothing standing out means nothing matches: an empty grid with a
@@ -127,8 +137,8 @@ final class SearchService: @unchecked Sendable {
     }
 
     /// Mean and spread of this query's similarity across the library sample.
-    private func baseline(for vector: [Float]) -> (Double, Double) {
-        let sample = lock.withLock { self.sample }
+    private func baseline(for vector: [Float], model: String) -> (Double, Double) {
+        let sample = lock.withLock { self.sample[model] ?? [] }
         guard sample.count >= 8 else { return (0, 0) }
         let sims = sample.map { v in Double(zip(v, vector).reduce(0) { $0 + $1.0 * $1.1 }) }
         let mean = sims.reduce(0, +) / Double(sims.count)
@@ -184,8 +194,8 @@ final class SearchService: @unchecked Sendable {
         ]]
     }
 
-    private func run(vector: [Float], filter: JSON?, labels: [String]) async throws -> [Photo] {
-        var prefetch: JSON = ["query": vector, "limit": 500]
+    private func run(vector: [Float], using: String, filter: JSON?, labels: [String]) async throws -> [Photo] {
+        var prefetch: JSON = ["query": vector, "using": using, "limit": 500]
         if let filter { prefetch["filter"] = filter }
 
         let body: JSON

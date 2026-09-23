@@ -16,7 +16,8 @@ final class QdrantClient: @unchecked Sendable {
         let id: String
         let score: Double
         let payload: JSON
-        var vector: [Float]? = nil
+        /// Named vectors, when requested with `with_vector`.
+        var vectors: [String: [Float]] = [:]
     }
 
     private let process: QdrantProcess
@@ -37,9 +38,10 @@ final class QdrantClient: @unchecked Sendable {
         return (r["result"] as? JSON)?["exists"] as? Bool ?? false
     }
 
-    func createCollection(_ name: String, size: Int) async throws {
+    /// One named cosine vector per entry, e.g. ["mobileclip-s2": 512].
+    func createCollection(_ name: String, vectors: [String: Int]) async throws {
         _ = try await call("PUT", "/collections/\(name)", [
-            "vectors": ["size": size, "distance": "Cosine"],
+            "vectors": vectors.mapValues { ["size": $0, "distance": "Cosine"] },
         ])
     }
 
@@ -113,7 +115,9 @@ final class QdrantClient: @unchecked Sendable {
                 id: String(describing: $0["id"] ?? ""),
                 score: ($0["score"] as? Double) ?? 0,
                 payload: $0["payload"] as? JSON ?? [:],
-                vector: ($0["vector"] as? [NSNumber])?.map(\.floatValue)
+                vectors: (($0["vector"] as? [String: Any]) ?? [:]).compactMapValues {
+                    ($0 as? [NSNumber])?.map(\.floatValue)
+                }
             )
         }
     }

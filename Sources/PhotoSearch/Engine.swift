@@ -7,18 +7,19 @@ final class Engine: @unchecked Sendable {
     let qdrant = QdrantProcess()
     let geocoder = GeocodeCache()
     private(set) var client: QdrantClient!
-    private(set) var model: EmbeddingModel!
+    /// Search model first, then any comparison models from config.json.
+    private(set) var models: [EmbeddingModel] = []
     private(set) var indexer: Indexer!
     private(set) var search: SearchService!
 
     func start() async throws {
-        // Model loading (first launch compiles it) overlaps with Qdrant startup.
-        async let loadedModel = Task.detached(priority: .userInitiated) { try MobileCLIP() }.value
+        // Model loading (first launch compiles them) overlaps with Qdrant startup.
+        async let loadedModels = Task.detached(priority: .userInitiated) { try Self.loadModels() }.value
         try await qdrant.start()
         client = QdrantClient(process: qdrant)
-        model = try await loadedModel
-        indexer = Indexer(client: client, model: model, geocoder: geocoder)
-        search = SearchService(client: client, model: model)
+        models = try await loadedModels
+        indexer = Indexer(client: client, models: models, geocoder: geocoder)
+        search = SearchService(client: client, models: models)
         try await indexer.prepare()
         await search.refreshPlaces()
     }
@@ -26,6 +27,30 @@ final class Engine: @unchecked Sendable {
     func stop() {
         qdrant.stop()
     }
+
+    /// Models from config.json. A comparison model that can't be loaded is
+    /// skipped; if the search model can't be, fall back to the bundled one.
+    private static func loadModels() throws -> [EmbeddingModel] {
+        let specs = AppConfig.load().modelSpecs()
+        var loaded: [EmbeddingModel] = []
+        for spec in specs {
+            do {
+                loaded.append(try CoreMLCLIP(spec))
+            } catch {
+                NSLog("PhotoSearch: skipping model \(spec.id): \(error.localizedDescription)")
+            }
+        }
+        if loaded.isEmpty || loaded.first?.id != specs.first?.id {
+            let fallback = ModelSpec.builtIn.first { $0.id == ModelSpec.defaultID }!
+            loaded.removeAll { $0.id == fallback.id }
+            loaded.insert(try CoreMLCLIP(fallback), at: 0)
+        }
+        return loaded
+    }
+
+    /// Qdrant's web dashboard, for power users.
+    var dashboardURL: URL { qdrant.baseURL.appendingPathComponent("dashboard") }
+    var apiKey: String { qdrant.apiKey }
 }
 
 /// `PhotoSearch --index <folder>` and `PhotoSearch --search "<query>"`, for
@@ -68,6 +93,20 @@ enum CLI {
                     print("imported \(await library.importItems([item]) { await indexer.contains(contentOf: $0) }) file(s)")
                     try await engine.indexer.sync(root: root) { _, _ in }
                     print("index holds \(await engine.indexer.count()) photos")
+                case "--compare":
+                    // --compare "<query>": the same search with every configured model.
+                    i += 1
+                    print("\n\"\(args[i])\"")
+                    for model in engine.models {
+                        let start = Date()
+                        let results = try await engine.search.search(args[i], using: model.id)
+                        let ms = Int(Date().timeIntervalSince(start) * 1000)
+                        let tag = model.id == engine.search.searchModel ? " (search model)" : ""
+                        print("  \(model.id)\(tag): \(results.count) results, \(ms) ms")
+                        for r in results.prefix(8) {
+                            print(String(format: "    %.3f  %@", r.score, r.url.lastPathComponent))
+                        }
+                    }
                 case "--labels":
                     for p in try await engine.client.scrollAll(Indexer.collection, fields: ["path", "labels"]) {
                         let name = URL(fileURLWithPath: p.payload["path"] as? String ?? "").lastPathComponent

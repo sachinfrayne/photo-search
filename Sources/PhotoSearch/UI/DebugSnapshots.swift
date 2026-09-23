@@ -33,6 +33,18 @@ enum DebugSnapshots {
             save(out.appendingPathComponent("4-viewer-next.png"))
             model.viewing = nil
             model.query = ""
+            (NSApp.delegate as? AppDelegate)?.installDashboardItem()
+            var report = ""
+            for item in NSApp.mainMenu?.items ?? [] {
+                for sub in item.submenu?.items ?? [] where !sub.isSeparatorItem {
+                    report += "\(item.title) > \(sub.title)\(sub.isAlternate ? "  [alternate, option]" : "")\n"
+                }
+            }
+            if let url = model.dashboardURL,
+               let (data, resp) = try? await URLSession.shared.data(from: url) {
+                report += "\nGET \(url.path) -> \((resp as? HTTPURLResponse)?.statusCode ?? 0), \(data.count) bytes\n"
+            }
+            try? report.write(to: out.appendingPathComponent("menu.txt"), atomically: true, encoding: .utf8)
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if ProcessInfo.processInfo.environment["PHOTOSEARCH_SNAPSHOT_STAY"] == nil {
                 NSApp.terminate(nil)

@@ -23,6 +23,7 @@ cp ".build/arm64-apple-macosx/release/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$AP
 cp vendor/qdrant "$APP_BUNDLE/Contents/MacOS/qdrant"
 cp -R vendor/models/mobileclip_s2_image.mlpackage vendor/models/mobileclip_s2_text.mlpackage \
       vendor/models/clip-vocab.json vendor/models/clip-merges.txt "$APP_BUNDLE/Contents/Resources/models/"
+cp -R vendor/dashboard "$APP_BUNDLE/Contents/Resources/dashboard"
 cp icon.icns "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp packaging/THIRD_PARTY_NOTICES.txt "$APP_BUNDLE/Contents/Resources/"
 

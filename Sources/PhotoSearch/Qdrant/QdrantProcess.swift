@@ -69,6 +69,10 @@ final class QdrantProcess: @unchecked Sendable {
             "QDRANT__TELEMETRY_DISABLED": "true",
             "QDRANT__LOG_LEVEL": "WARN",
         ]
+        if FileManager.default.fileExists(atPath: AppPaths.dashboard.appendingPathComponent("index.html").path) {
+            p.environment?["QDRANT__SERVICE__ENABLE_STATIC_CONTENT"] = "true"
+            p.environment?["QDRANT__SERVICE__STATIC_CONTENT_DIR"] = AppPaths.dashboard.path
+        }
         // A fresh pipe per launch: a finished process's pipe can't be reused.
         let logPipe = Pipe()
         p.standardOutput = logPipe

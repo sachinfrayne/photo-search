@@ -176,6 +176,32 @@ final class AppModel: ObservableObject {
         engine.stop()
     }
 
+    // MARK: - Power users
+
+    /// Opens Qdrant's web dashboard in the browser. The API key changes every
+    /// launch, so it's put on the clipboard for the dashboard's key prompt.
+    func openDashboard() {
+        guard phase == .ready else { return }
+        let alert = NSAlert()
+        alert.messageText = "Open the search database?"
+        alert.informativeText = """
+            This opens Qdrant's dashboard in your browser, where you can browse \
+            the "photos" collection and run your own queries.
+
+            Its API key has been copied to the clipboard. Paste it when the \
+            dashboard asks for one. The key changes each time PhotoSearch starts.
+            """
+        alert.addButton(withTitle: "Open Dashboard")
+        alert.addButton(withTitle: "Cancel")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(engine.apiKey, forType: .string)
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(engine.dashboardURL)
+        }
+    }
+
+    var dashboardURL: URL? { phase == .ready ? engine.dashboardURL : nil }
+
     // MARK: - Viewer navigation
 
     func showNext(_ step: Int) {

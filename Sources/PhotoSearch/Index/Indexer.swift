@@ -11,28 +11,29 @@ import Vision
 actor Indexer {
     static let collection = "photos"
     /// Bump when the payload layout changes in a way that needs a rebuild.
-    private static let schemaVersion = 3
+    private static let schemaVersion = 4
     static let imageExts: Set<String> = Sorter.mediaExts.subtracting(MetadataReader.videoExts)
 
     private let client: QdrantClient
-    private let model: EmbeddingModel
+    /// Every photo gets one named vector per model (search model first).
+    private let models: [EmbeddingModel]
     private let geocoder: GeocodeCache
     private var knownByPath: [String: (id: String, mtime: Int, size: Int)] = [:]
     private var knownIDs: Set<String> = []
 
-    init(client: QdrantClient, model: EmbeddingModel, geocoder: GeocodeCache) {
+    init(client: QdrantClient, models: [EmbeddingModel], geocoder: GeocodeCache) {
         self.client = client
-        self.model = model
+        self.models = models
         self.geocoder = geocoder
     }
 
     // MARK: - Collection setup
 
-    /// Creates the collection on first run, and rebuilds it if the embedding
-    /// model or payload layout changed since it was built.
+    /// Creates the collection on first run, and rebuilds it if the set of
+    /// embedding models or the payload layout changed since it was built.
     func prepare() async throws {
         let metaURL = AppPaths.support.appendingPathComponent("index.json")
-        let wanted: [String: AnyHashable] = ["model": model.id, "schema": Self.schemaVersion]
+        let wanted: [String: AnyHashable] = ["models": models.map(\.id).sorted(), "schema": Self.schemaVersion]
         let current = (try? JSONSerialization.jsonObject(with: Data(contentsOf: metaURL))) as? [String: AnyHashable]
         let exists = try await client.collectionExists(Self.collection)
 
@@ -40,7 +41,10 @@ actor Indexer {
             try await client.deleteCollection(Self.collection)
         }
         if !exists || current != wanted {
-            try await client.createCollection(Self.collection, size: model.dimensions)
+            try await client.createCollection(
+                Self.collection,
+                vectors: Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0.dimensions) })
+            )
             for field in ["country", "city", "labels", "path"] {
                 try await client.createIndex(Self.collection, field: field, schema: "keyword")
             }
@@ -89,7 +93,7 @@ actor Indexer {
         if total == 0 { await progress?(0, 0); return }
         await progress?(0, total)
 
-        let model = model, geocoder = geocoder
+        let models = models, geocoder = geocoder
         var done = 0
         var batch: [JSON] = []
 
@@ -100,7 +104,7 @@ actor Indexer {
                 let isKnown: @Sendable (String) -> Bool = { [knownIDs] id in knownIDs.contains(id) }
                 group.addTask {
                     try? await Self.prepare(item.url, mtime: item.mtime, size: item.size, root: root,
-                                            model: model, geocoder: geocoder, isKnown: isKnown)
+                                            models: models, geocoder: geocoder, isKnown: isKnown)
                 }
             }
             for _ in 0..<4 { addNext() }
@@ -116,8 +120,8 @@ actor Indexer {
                         try await remove(ids: [old])
                     }
                     knownIDs.insert(p.id)
-                    if let vector = p.vector {
-                        batch.append(["id": p.id, "vector": vector, "payload": p.payload])
+                    if let vectors = p.vectors {
+                        batch.append(["id": p.id, "vector": vectors, "payload": p.payload])
                     } else {
                         // Same photo, new place (moved/renamed): just update where it lives.
                         try await client.setPayload(Self.collection, id: p.id, payload: p.payload)
@@ -172,13 +176,13 @@ actor Indexer {
         let path: String
         let mtime: Int
         let size: Int
-        let vector: [Float]?
+        let vectors: [String: [Float]]?
         let payload: JSON
     }
 
     private static func prepare(
         _ url: URL, mtime: Int, size: Int, root: URL,
-        model: EmbeddingModel, geocoder: GeocodeCache,
+        models: [EmbeddingModel], geocoder: GeocodeCache,
         isKnown: @Sendable (String) -> Bool
     ) async throws -> Prepared? {
         let id = try contentID(url)
@@ -208,7 +212,7 @@ actor Indexer {
                let thumb = thumbnail(url) {
                 saveThumbnail(thumb, id: id)
             }
-            return Prepared(id: id, path: path, mtime: mtime, size: size, vector: nil, payload: payload)
+            return Prepared(id: id, path: path, mtime: mtime, size: size, vectors: nil, payload: payload)
         }
 
         guard let thumb = thumbnail(url) else { return nil }
@@ -216,8 +220,9 @@ actor Indexer {
         payload["width"] = thumb.width
         payload["height"] = thumb.height
         payload["labels"] = sceneLabels(thumb)
-        let vector = try model.embed(image: thumb)
-        return Prepared(id: id, path: path, mtime: mtime, size: size, vector: vector, payload: payload)
+        var vectors: [String: [Float]] = [:]
+        for model in models { vectors[model.id] = try model.embed(image: thumb) }
+        return Prepared(id: id, path: path, mtime: mtime, size: size, vectors: vectors, payload: payload)
     }
 
     /// Photos that PhotoSorter placed under `<year>/<MM - Month>/<Country>/`

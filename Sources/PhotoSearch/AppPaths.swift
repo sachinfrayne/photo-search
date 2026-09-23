@@ -23,6 +23,14 @@ enum AppPaths {
         isBundled ? Bundle.main.resourceURL!.appendingPathComponent("models") : vendor.appendingPathComponent("models")
     }
 
+    /// Qdrant's web dashboard, served by Qdrant itself at /dashboard.
+    static var dashboard: URL {
+        isBundled ? Bundle.main.resourceURL!.appendingPathComponent("dashboard") : vendor.appendingPathComponent("dashboard")
+    }
+
+    /// Extra Core ML models power users can drop in (see config.json).
+    static var userModels: URL { support.appendingPathComponent("Models") }
+
     /// Persistent data: the vector index and compiled models.
     static let support: URL = {
         let base = ProcessInfo.processInfo.environment["PHOTOSEARCH_DATA"].map { URL(fileURLWithPath: $0) }

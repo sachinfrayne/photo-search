@@ -4,6 +4,10 @@ Qdrant (vector search engine)
   https://github.com/qdrant/qdrant
   Licensed under the Apache License 2.0.
 
+Qdrant Web UI (dashboard)
+  https://github.com/qdrant/qdrant-web-ui
+  Licensed under the Apache License 2.0.
+
 MobileCLIP-S2 Core ML models (image and text encoders)
   https://huggingface.co/apple/coreml-mobileclip
   Copyright (C) 2024 Apple Inc.

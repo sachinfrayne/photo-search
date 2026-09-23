@@ -3,11 +3,16 @@
 #   - the Qdrant vector database (official macOS binary)
 #   - Apple's MobileCLIP-S2 image and text encoders (Core ML)
 #   - the CLIP tokenizer vocabulary
+#   - Qdrant's web dashboard (for power users; opened from a hidden menu item)
+#
+# Pass --extra-models to also fetch MobileCLIP-B (LT), a larger model that
+# can be compared against the default (see README, "Trying other models").
 # Everything lands in vendor/ (gitignored). Safe to re-run; existing files are kept.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 QDRANT_VERSION="v1.19.1"
+WEB_UI_VERSION="v0.2.18"
 MODEL_REPO="https://huggingface.co/apple/coreml-mobileclip/resolve/main"
 MOBILECLIP_REPO="https://raw.githubusercontent.com/apple/ml-mobileclip/main/ios_app/MobileCLIPExplore/Resources"
 VENDOR="vendor"
@@ -23,15 +28,29 @@ if [ ! -x "$VENDOR/qdrant" ]; then
     chmod +x "$VENDOR/qdrant"
 fi
 
-for part in image text; do
-    pkg="$VENDOR/models/mobileclip_s2_$part.mlpackage"
-    if [ ! -f "$pkg/Data/com.apple.CoreML/weights/weight.bin" ]; then
-        echo "Downloading MobileCLIP-S2 $part encoder..."
-        for f in Manifest.json Data/com.apple.CoreML/model.mlmodel Data/com.apple.CoreML/weights/weight.bin; do
-            mkdir -p "$(dirname "$pkg/$f")"
-            curl -fL --progress-bar -o "$pkg/$f" "$MODEL_REPO/mobileclip_s2_$part.mlpackage/$f"
-        done
-    fi
+if [ ! -f "$VENDOR/dashboard/index.html" ]; then
+    echo "Downloading Qdrant web dashboard $WEB_UI_VERSION..."
+    curl -fL --progress-bar -o "$VENDOR/dashboard.zip" \
+        "https://github.com/qdrant/qdrant-web-ui/releases/download/$WEB_UI_VERSION/dist-qdrant.zip"
+    rm -rf "$VENDOR/dashboard" "$VENDOR/dist"
+    unzip -q "$VENDOR/dashboard.zip" -d "$VENDOR"
+    mv "$VENDOR/dist" "$VENDOR/dashboard"
+    rm "$VENDOR/dashboard.zip"
+fi
+
+MODELS="s2"
+[ "${1:-}" = "--extra-models" ] && MODELS="s2 blt"
+for model in $MODELS; do
+    for part in image text; do
+        pkg="$VENDOR/models/mobileclip_${model}_$part.mlpackage"
+        if [ ! -f "$pkg/Data/com.apple.CoreML/weights/weight.bin" ]; then
+            echo "Downloading MobileCLIP-$model $part encoder..."
+            for f in Manifest.json Data/com.apple.CoreML/model.mlmodel Data/com.apple.CoreML/weights/weight.bin; do
+                mkdir -p "$(dirname "$pkg/$f")"
+                curl -fL --progress-bar -o "$pkg/$f" "$MODEL_REPO/mobileclip_${model}_$part.mlpackage/$f"
+            done
+        fi
+    done
 done
 
 for f in clip-vocab.json clip-merges.txt; do
