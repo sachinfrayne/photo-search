@@ -11,7 +11,7 @@ import Vision
 actor Indexer {
     static let collection = "photos"
     /// Bump when the payload layout changes in a way that needs a rebuild.
-    private static let schemaVersion = 2
+    private static let schemaVersion = 3
     static let imageExts: Set<String> = Sorter.mediaExts.subtracting(MetadataReader.videoExts)
 
     private let client: QdrantClient
@@ -44,7 +44,7 @@ actor Indexer {
             for field in ["country", "city", "labels", "path"] {
                 try await client.createIndex(Self.collection, field: field, schema: "keyword")
             }
-            for field in ["taken", "year", "month"] {
+            for field in ["taken", "year", "month", "hour"] {
                 try await client.createIndex(Self.collection, field: field, schema: "integer")
             }
             try JSONSerialization.data(withJSONObject: wanted).write(to: metaURL)
@@ -191,6 +191,8 @@ actor Indexer {
             payload["taken"] = Int(date.timeIntervalSince1970)
             payload["year"] = cal.component(.year, from: date)
             payload["month"] = cal.component(.month, from: date)
+            // Wall-clock hour the photo was taken, for "sunrise", "night", etc.
+            payload["hour"] = Calendar.current.component(.hour, from: date)
         }
         var place = Place()
         if let lat = meta.latitude, let lon = meta.longitude {

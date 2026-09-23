@@ -22,9 +22,10 @@ struct Photo: Identifiable, Hashable, Sendable {
 
 /// Turns what the user typed into a Qdrant query.
 ///
-/// - Place names ("in italy") and dates ("august", "2025") that match the
-///   library's own metadata become filters, because metadata beats guessing
-///   a country from pixels.
+/// - Place names ("in italy"), dates ("august", "2025") and times of day
+///   ("sunrise", "night") become filters on the photo's metadata, because
+///   metadata beats guessing from pixels: a sunrise and a sunset look alike,
+///   but the camera clock knows which is which.
 /// - The whole phrase is embedded with the CLIP text encoder for visual
 ///   similarity.
 /// - Words that match Apple Vision's scene labels nudge those photos up.
@@ -60,6 +61,14 @@ final class SearchService: @unchecked Sendable {
         "january", "february", "march", "april", "may", "june", "july",
         "august", "september", "october", "november", "december",
     ]
+    /// Times of day as wall-clock hour ranges (inclusive; may wrap midnight).
+    private static let timesOfDay: [String: (from: Int, to: Int)] = [
+        "sunrise": (4, 10), "dawn": (4, 9), "morning": (5, 11),
+        "noon": (11, 14), "midday": (11, 14), "afternoon": (12, 18),
+        "sunset": (16, 23), "dusk": (17, 23), "evening": (17, 23),
+        "night": (20, 4), "nighttime": (20, 4),
+    ]
+
     private static let stopwords: Set<String> = [
         "a", "an", "the", "in", "on", "at", "of", "and", "or", "with", "from", "to", "by", "for",
         "photo", "photos", "picture", "pictures", "image", "images", "some", "my", "me", "is",
@@ -104,17 +113,17 @@ final class SearchService: @unchecked Sendable {
         let parsed = parse(query)
         let vector = try model.embed(text: "a photo of \(query)")
 
-        var results = try await run(vector: vector, filter: parsed.filter, labels: parsed.labelWords)
-        if results.isEmpty && parsed.filter != nil {
-            // e.g. "church in italy" with no Italian photos: show the closest churches anyway.
-            results = try await run(vector: vector, filter: nil, labels: parsed.labelWords)
-        }
+        // A filter that matches nothing ("sunrise 2026" in a 2025 library)
+        // means nothing matches; don't quietly widen the search. Unknown
+        // places never become filters, so "church in italy" still works.
+        let results = try await run(vector: vector, filter: parsed.filter, labels: parsed.labelWords)
         guard let top = results.first?.score else { return [] }
         let (mean, std) = baseline(for: vector)
         lastTopZ = std > 0 ? (top - mean) / std : 0
         let cutoff = max(top - Self.relativeMargin, mean + Self.minZScore * std)
-        // Always show at least the best match, so a search never looks broken.
-        return results.enumerated().filter { $0.offset == 0 || $0.element.score >= cutoff }.map(\.element)
+        // Nothing standing out means nothing matches: an empty grid with a
+        // "no photos match" message is more honest than a random best guess.
+        return results.filter { $0.score >= cutoff }
     }
 
     /// Mean and spread of this query's similarity across the library sample.
@@ -151,6 +160,8 @@ final class SearchService: @unchecked Sendable {
         for word in words {
             if let m = Self.months.firstIndex(of: word) {
                 must.append(["key": "month", "match": ["value": m + 1]])
+            } else if let range = Self.timesOfDay[word] {
+                must.append(Self.hourCondition(range))
             } else if word.count == 4, let year = Int(word), (1900...2100).contains(year) {
                 must.append(["key": "year", "match": ["value": year]])
             } else if word.count > 2, !Self.stopwords.contains(word) {
@@ -160,6 +171,17 @@ final class SearchService: @unchecked Sendable {
             }
         }
         return Parsed(filter: must.isEmpty ? nil : ["must": must], labelWords: labelWords)
+    }
+
+    private static func hourCondition(_ r: (from: Int, to: Int)) -> JSON {
+        if r.from <= r.to {
+            return ["key": "hour", "range": ["gte": r.from, "lte": r.to]]
+        }
+        // Wraps midnight, e.g. night = 20:00–04:59.
+        return ["should": [
+            ["key": "hour", "range": ["gte": r.from]],
+            ["key": "hour", "range": ["lte": r.to]],
+        ]]
     }
 
     private func run(vector: [Float], filter: JSON?, labels: [String]) async throws -> [Photo] {

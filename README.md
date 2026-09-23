@@ -51,8 +51,10 @@ PhotoSearch.app
   and shuts it down on quit. A small watchdog stops Qdrant even if the app crashes.
 - **Search:** the query is embedded and matched with Qdrant's Query API. Three things
   refine the result:
-  - Place names, months and years that match the library's metadata become
-    payload filters ("church in Spain", "sunset in October", "2025").
+  - Place names, months, years and times of day become payload filters ("church in
+    Spain", "2025", "sunset in October"). Time words like "sunrise", "sunset" and
+    "night" filter on the hour the photo was taken, because the model can't tell a
+    sunrise from a sunset but the camera clock can.
   - Apple Vision scene labels add a small score boost through a Qdrant formula query.
   - Each query is calibrated against a random sample of the library, so only photos
     that stand out for *that* query are shown. Raw CLIP scores aren't comparable
