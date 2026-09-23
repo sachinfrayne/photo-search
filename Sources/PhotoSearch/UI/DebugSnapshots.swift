@@ -41,9 +41,21 @@ enum DebugSnapshots {
     }
 
     static func save(_ url: URL) {
-        guard let view = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil })?.contentView,
-              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }),
+              let view = window.contentView?.superview ?? window.contentView else { return }
+        let scale = window.backingScaleFactor
+        let size = view.bounds.size
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ), let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        rep.size = size
+        // Rendering the layer tree (rather than cacheDisplay) also captures
+        // text fields, which draw through a separate field editor.
+        view.wantsLayer = true
+        ctx.cgContext.scaleBy(x: scale, y: scale)
+        view.layer?.render(in: ctx.cgContext)
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
     }
 }

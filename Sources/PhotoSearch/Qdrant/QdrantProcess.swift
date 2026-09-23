@@ -20,11 +20,11 @@ final class QdrantProcess: @unchecked Sendable {
     private(set) var baseURL = URL(string: "http://127.0.0.1:6333")!
     let apiKey = UUID().uuidString
     private var process: Process?
-    private let logPipe = Pipe()
     private var recentLog = ""
     private let lock = NSLock()
     private var stopping = false
     private var restarted = false
+    private var wasReady = false
 
     private let storage = AppPaths.support.appendingPathComponent("qdrant-storage")
     private let pidFile = AppPaths.support.appendingPathComponent("qdrant.pid")
@@ -69,6 +69,8 @@ final class QdrantProcess: @unchecked Sendable {
             "QDRANT__TELEMETRY_DISABLED": "true",
             "QDRANT__LOG_LEVEL": "WARN",
         ]
+        // A fresh pipe per launch: a finished process's pipe can't be reused.
+        let logPipe = Pipe()
         p.standardOutput = logPipe
         p.standardError = logPipe
         logPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -80,6 +82,7 @@ final class QdrantProcess: @unchecked Sendable {
         try p.run()
         process = p
         try await waitUntilReady()
+        lock.withLock { wasReady = true }
     }
 
     func stop() {
@@ -113,8 +116,11 @@ final class QdrantProcess: @unchecked Sendable {
 
     /// If Qdrant dies unexpectedly (not because we asked it to), restart it once.
     private func handleExit(_ proc: Process) {
+        (proc.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         let shouldRestart = lock.withLock { () -> Bool in
-            guard !stopping, !restarted else { return false }
+            // Startup failures are reported by start() itself; only restart a
+            // Qdrant that was up and running.
+            guard !stopping, !restarted, wasReady else { return false }
             restarted = true
             return true
         }
