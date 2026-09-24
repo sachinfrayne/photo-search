@@ -18,10 +18,12 @@ jobs:
         with:
           repository: sachinfrayne/photo-sorter
           path: photo-sorter
+      # uv runs scripts/convert_siglip2.py (SigLIP 2 → Core ML) on a cold cache.
+      - uses: astral-sh/setup-uv@v6
       - uses: actions/cache@v4
         with:
           path: photo-search/vendor
-          key: vendor-${{ hashFiles('photo-search/scripts/fetch_deps.sh') }}
+          key: vendor-${{ hashFiles('photo-search/scripts/fetch_deps.sh', 'photo-search/scripts/convert_siglip2.py') }}
       - run: ./build_mac.sh
         working-directory: photo-search
       - uses: actions/upload-artifact@v6

@@ -8,13 +8,19 @@ Qdrant Web UI (dashboard)
   https://github.com/qdrant/qdrant-web-ui
   Licensed under the Apache License 2.0.
 
-MobileCLIP-S2 Core ML models (image and text encoders)
-  https://huggingface.co/apple/coreml-mobileclip
-  Copyright (C) 2024 Apple Inc.
-  Apple Machine Learning Research Model is licensed under the Apple Machine
-  Learning Research Model License Agreement (research use only):
-  https://github.com/apple/ml-mobileclip/blob/main/LICENSE_MODELS
+SigLIP 2 base (google/siglip2-base-patch16-256), converted to Core ML,
+including its tokenizer
+  https://huggingface.co/google/siglip2-base-patch16-256
+  Copyright Google LLC. Licensed under the Apache License 2.0.
 
-CLIP tokenizer vocabulary and BPE merges, and tokenizer code adapted from
-Hugging Face swift-coreml-transformers (Apache License 2.0) via Apple's
-ml-mobileclip demo app (MIT License, Copyright (C) 2024 Apple Inc.).
+swift-transformers (Tokenizers), and its dependencies swift-crypto,
+swift-collections, swift-jinja and swift-huggingface
+  https://github.com/huggingface/swift-transformers
+  Licensed under the Apache License 2.0.
+  yyjson (https://github.com/ibireme/yyjson), MIT License.
+
+CLIP tokenizer code, adapted from Hugging Face swift-coreml-transformers
+(Apache License 2.0) via Apple's ml-mobileclip demo app (MIT License,
+Copyright (C) 2024 Apple Inc.). Used only for the optional MobileCLIP models,
+which are not bundled and are licensed for research use only:
+https://github.com/apple/ml-mobileclip/blob/main/LICENSE_MODELS

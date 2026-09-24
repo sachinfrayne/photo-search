@@ -36,10 +36,18 @@ struct Photo: Identifiable, Hashable, Sendable {
 final class SearchService: @unchecked Sendable {
     /// Keep photos at least this many standard deviations above the
     /// library's typical similarity for the query...
-    static let minZScore = 1.8
-    /// ...and within this distance of the best match.
-    static let relativeMargin = 0.06
-    static let labelBoost = 0.03
+    static let minZScore = tuning("PHOTOSEARCH_MIN_Z", 2.1)
+    /// ...and within this many standard deviations of the best match.
+    static let relativeMarginZ = tuning("PHOTOSEARCH_MARGIN_Z", 1.5)
+    /// A Vision label match adds this many standard deviations to the score.
+    /// Everything is in units of the query's own spread, so the same settings
+    /// work for models whose raw similarities live on different scales.
+    static let labelBoostZ = tuning("PHOTOSEARCH_BOOST_Z", 1.0)
+
+    /// Development knob: override a threshold from the environment when tuning.
+    private static func tuning(_ key: String, _ value: Double) -> Double {
+        ProcessInfo.processInfo.environment[key].flatMap(Double.init) ?? value
+    }
     static let sampleSize = 512
 
     /// Per model: vectors of a random sample of the library, for calibration.
@@ -127,16 +135,18 @@ final class SearchService: @unchecked Sendable {
                 .map { Photo(id: $0.id, payload: $0.payload) }
                 .sorted { ($0.taken ?? .distantPast) > ($1.taken ?? .distantPast) }
         }
-        let vector = try model.embed(text: "a photo of \(parsed.visualText)")
+        let vector = try model.embed(query: parsed.visualText)
+        let (mean, std) = baseline(for: vector, model: using)
+        let spread = std > 0 ? std : 0.03
 
         // A filter that matches nothing ("sunrise 2026" in a 2025 library)
         // means nothing matches; don't quietly widen the search. Unknown
         // places never become filters, so "church in italy" still works.
-        let results = try await run(vector: vector, using: using, filter: parsed.filter, labels: parsed.labelWords)
+        let results = try await run(vector: vector, using: using, filter: parsed.filter,
+                                    labels: parsed.labelWords, boost: Self.labelBoostZ * spread)
         guard let top = results.first?.score else { return [] }
-        let (mean, std) = baseline(for: vector, model: using)
         lastTopZ = std > 0 ? (top - mean) / std : 0
-        let cutoff = max(top - Self.relativeMargin, mean + Self.minZScore * std)
+        let cutoff = max(top - Self.relativeMarginZ * spread, mean + Self.minZScore * std)
         // Nothing standing out means nothing matches: an empty grid with a
         // "no photos match" message is more honest than a random best guess.
         return results.filter { $0.score >= cutoff }
@@ -225,7 +235,7 @@ final class SearchService: @unchecked Sendable {
         ]]
     }
 
-    private func run(vector: [Float], using: String, filter: JSON?, labels: [String]) async throws -> [Photo] {
+    private func run(vector: [Float], using: String, filter: JSON?, labels: [String], boost: Double) async throws -> [Photo] {
         var prefetch: JSON = ["query": vector, "using": using, "limit": 500]
         if let filter { prefetch["filter"] = filter }
 
@@ -237,7 +247,7 @@ final class SearchService: @unchecked Sendable {
                 "prefetch": prefetch,
                 "query": ["formula": ["sum": [
                     "$score",
-                    ["mult": [Self.labelBoost, ["key": "labels", "match": ["any": labels]]]],
+                    ["mult": [boost, ["key": "labels", "match": ["any": labels]]]],
                 ]]],
                 "limit": 500,
                 "with_payload": true,

@@ -54,5 +54,9 @@ struct PhotoSearchApp: App {
                 Button("Open Search Database…") { model.openDashboard() }
             }
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }

@@ -12,7 +12,7 @@ final class CLIPTokenizer: @unchecked Sendable {
         let b: String
     }
 
-    static let contextLength = 77
+    let contextLength: Int
 
     private let ranks: [Pair: Int]
     private let vocab: [String: Int]
@@ -25,7 +25,8 @@ final class CLIPTokenizer: @unchecked Sendable {
     private var cache: [String: [String]] = [:]
     private let lock = NSLock()
 
-    init(vocabURL: URL, mergesURL: URL) throws {
+    init(vocabURL: URL, mergesURL: URL, contextLength: Int = 77) throws {
+        self.contextLength = contextLength
         vocab = try JSONDecoder().decode([String: Int].self, from: Data(contentsOf: vocabURL))
         let lines = try String(contentsOf: mergesURL, encoding: .utf8).split(separator: "\n")
         var ranks: [Pair: Int] = [:]
@@ -39,7 +40,7 @@ final class CLIPTokenizer: @unchecked Sendable {
         endToken = vocab["<|endoftext|>"]!
     }
 
-    /// Token ids padded (with zeros) to the model's 77-token context.
+    /// Token ids padded (with zeros) to the model's context length.
     func encode(_ text: String) -> [Int32] {
         let cleaned = text.lowercased()
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
@@ -51,9 +52,9 @@ final class CLIPTokenizer: @unchecked Sendable {
             let encoded = word.utf8.map { byteEncoder[$0]! }.joined()
             ids += bpe(encoded).compactMap { vocab[$0] }
         }
-        ids = Array(ids.prefix(Self.contextLength - 2))
+        ids = Array(ids.prefix(contextLength - 2))
 
-        var out = [Int32](repeating: 0, count: Self.contextLength)
+        var out = [Int32](repeating: 0, count: contextLength)
         out[0] = Int32(startToken)
         for (i, id) in ids.enumerated() { out[i + 1] = Int32(id) }
         out[ids.count + 1] = Int32(endToken)

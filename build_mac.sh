@@ -21,8 +21,11 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/models"
 cp ".build/arm64-apple-macosx/release/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp vendor/qdrant "$APP_BUNDLE/Contents/MacOS/qdrant"
-cp -R vendor/models/mobileclip_s2_image.mlpackage vendor/models/mobileclip_s2_text.mlpackage \
-      vendor/models/clip-vocab.json vendor/models/clip-merges.txt "$APP_BUNDLE/Contents/Resources/models/"
+# Only the default search model ships; others can be added by the user.
+cp -R vendor/models/siglip2-base-256 "$APP_BUNDLE/Contents/Resources/models/"
+rm -f "$APP_BUNDLE/Contents/Resources/models/siglip2-base-256/tokenizer_reference.json"
+# Resource bundles of Swift package dependencies (swift-transformers).
+cp -R .build/arm64-apple-macosx/release/*.bundle "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
 cp -R vendor/dashboard "$APP_BUNDLE/Contents/Resources/dashboard"
 cp icon.icns "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp packaging/THIRD_PARTY_NOTICES.txt "$APP_BUNDLE/Contents/Resources/"
@@ -59,7 +62,7 @@ mkdir -p "$BUILD_DIR/dmg-staging"
 cp -R "$APP_BUNDLE" "$BUILD_DIR/dmg-staging/"
 cp "packaging/FIRST TIME ON MAC.txt" "$BUILD_DIR/dmg-staging/"
 ln -s /Applications "$BUILD_DIR/dmg-staging/Applications"
-hdiutil create -volname "$APP_NAME" -srcfolder "$BUILD_DIR/dmg-staging" -ov -format UDZO "$BUILD_DIR/$APP_NAME.dmg"
+hdiutil create -volname "$APP_NAME" -srcfolder "$BUILD_DIR/dmg-staging" -ov -format ULFO "$BUILD_DIR/$APP_NAME.dmg"
 rm -rf "$BUILD_DIR/dmg-staging"
 
 echo ""

@@ -39,12 +39,14 @@ pinch or double-click to zoom.
 PhotoSearch.app
 ├── MacOS/PhotoSearch    SwiftUI app
 ├── MacOS/qdrant         Qdrant vector database, run as a hidden background process
-└── Resources/models/    Apple MobileCLIP-S2 image + text encoders (Core ML)
+└── Resources/models/    Google SigLIP 2 base image + text encoders (Core ML)
 ```
 
-- **Embeddings:** Apple's [MobileCLIP-S2](https://huggingface.co/apple/coreml-mobileclip)
-  maps photos and text into the same 512-dimension space. It runs on the Neural Engine
-  through Core ML, so indexing a photo takes a few milliseconds.
+- **Embeddings:** Google's [SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-256)
+  (base, 256 px, Apache-2.0) maps photos and text into the same 768-dimension space.
+  It's converted to Core ML by `scripts/convert_siglip2.py` and runs on the Neural
+  Engine, so indexing a photo takes well under a tenth of a second. SigLIP 2 was trained
+  on multilingual data, which leaves the door open to searching in other languages.
 - **Vector search:** the official [Qdrant](https://github.com/qdrant/qdrant) macOS
   binary. The app starts it on launch, bound to `127.0.0.1` on a random port with a
   per-launch API key. It stores its data in `~/Library/Application Support/PhotoSearch`
@@ -79,32 +81,53 @@ the app) in your browser. There you can browse the `photos` collection, inspect
 payloads and run queries. Qdrant runs with a per-launch API key, which the app copies
 to the clipboard. Paste it when the dashboard asks.
 
-### Trying other models
+### Choosing a different model
 
-Create `~/Library/Application Support/PhotoSearch/config.json`:
+Each model is a folder containing its Core ML encoders, its tokenizer and a
+`model.json` that describes them. The app ships with `siglip2-base-256`.
+To add your own, put its folder in `~/Library/Application Support/PhotoSearch/Models/`,
+then pick it in **PhotoSearch › Settings…**. The app restarts and re-reads your photos
+with the new model.
+
+`model.json` looks like this:
 
 ```json
 {
-  "searchModel": "mobileclip-s2",
-  "compareModels": ["mobileclip-blt"]
+  "id": "siglip2-base-256",
+  "name": "SigLIP 2 base-patch16-256",
+  "license": "Apache-2.0",
+  "dimensions": 768,
+  "image": { "model": "image.mlpackage", "input": "image", "resize": "squash" },
+  "text": { "model": "text.mlpackage", "input": "input_ids", "tokenizer": "huggingface",
+            "contextLength": 64, "lowercase": true, "prompt": "a photo of {}" },
+  "output": "embedding",
+  "computeUnits": "cpuAndNeuralEngine"
 }
 ```
 
-- `searchModel` is the model the app searches with. Built-in IDs are
-  `mobileclip-s0`, `mobileclip-s1`, `mobileclip-s2` (default, bundled) and
-  `mobileclip-blt`.
-- `compareModels` are indexed alongside it. Each model gets its own named vector
-  in the same Qdrant collection.
-- Model files other than S2 go in `~/Library/Application Support/PhotoSearch/Models/`.
-  `./scripts/fetch_deps.sh --extra-models` downloads MobileCLIP-B (LT) into `vendor/models`.
-- Other CLIP-style Core ML models that use the CLIP tokenizer can be added under
-  `"models"`, with the fields `id`, `imageModel`, `textModel`, `dimensions`,
-  `imageInput`, `textInput` and `output`.
-- Changing the set of models rebuilds the index on the next launch.
+- `tokenizer` is `huggingface` (a `tokenizer.json` in the folder) or `clip`
+  (`clip-vocab.json` and `clip-merges.txt`).
+- `resize` is `squash` (SigLIP) or `centerCrop` (CLIP).
+- `scripts/convert_siglip2.py <hugging face id> <folder>` converts any SigLIP 2
+  checkpoint into such a folder and checks it against PyTorch.
+- `./scripts/fetch_deps.sh --extra-models` builds three more for comparison in
+  `vendor/models`: SigLIP 2 So400m (1.5 GB), MobileCLIP S2 and MobileCLIP B (LT).
+  MobileCLIP is research-only, so it's never bundled.
 
-Then compare the same searches across every configured model:
+### Comparing models
+
+Add `compareModels` to `~/Library/Application Support/PhotoSearch/config.json`
+(Settings writes `searchModel` in the same file):
+
+```json
+{ "searchModel": "siglip2-base-256", "compareModels": ["siglip2-so400m-384", "mobileclip-s2"] }
+```
+
+Every listed model gets its own named vector in the same Qdrant collection, and
+changing the list rebuilds the index. Then run the same search with each one:
 
 ```bash
+.build/debug/PhotoSearch --models                                   # what's installed
 .build/debug/PhotoSearch --compare "painting in church" --compare "beach"
 ```
 
@@ -119,8 +142,9 @@ checked out next to this one (`../photo-sorter`).
 ./build_mac.sh
 ```
 
-This downloads Qdrant and the models into `vendor/` on the first run (about 250 MB),
-then produces `dist/PhotoSearch.app` and `dist/PhotoSearch.dmg`. Pushing to GitHub
+On the first run this downloads Qdrant and the dashboard into `vendor/`. It also
+converts SigLIP 2 to Core ML, which needs [uv](https://docs.astral.sh/uv/), takes a few
+minutes and downloads the PyTorch checkpoint once. It then produces `dist/PhotoSearch.app` and `dist/PhotoSearch.dmg`. Pushing to GitHub
 builds the DMG in Actions too.
 
 ### Running from source
@@ -142,13 +166,15 @@ data folder unless `PHOTOSEARCH_DATA` points elsewhere:
 
 Other development variables: `PHOTOSEARCH_LIBRARY` overrides the photos folder, and
 `PHOTOSEARCH_SNAPSHOTS=<dir>` makes the app save screenshots of its own window and quit.
+`PHOTOSEARCH_MIN_Z`, `PHOTOSEARCH_MARGIN_Z` and `PHOTOSEARCH_BOOST_Z` override the search
+cut-off settings when tuning.
 
 ## Limits (v1)
 
-- English queries. The embedding model sits behind an `EmbeddingModel` protocol. If it
-  changes (for example to a multilingual text encoder), the index rebuilds itself.
+- The query parsing (places, months, stop words) is English. SigLIP 2 itself handles
+  other languages, so that's the part to extend.
 - Videos are sorted but not yet searchable.
-- If nothing in the library matches, the closest one to three photos are still shown.
+- If nothing in the library matches, a few near misses can still appear.
 - Apple Silicon only.
 
 ## Licence
@@ -157,9 +183,5 @@ PhotoSearch's own code is licensed under the [Apache License 2.0](LICENSE).
 Bundled third-party components keep their own licences; see
 `packaging/THIRD_PARTY_NOTICES.txt`.
 
-> **Model licence:** the MobileCLIP-S2 weights are under Apple's Machine
-> Learning Research Model licence, which only allows non-commercial research
-> use. They aren't in this repository (`scripts/fetch_deps.sh` downloads them
-> at build time), but a built `PhotoSearch.dmg` contains them. Swap in a
-> permissively licensed model (for example SigLIP 2, Apache-2.0) before
-> distributing the app.
+The bundled model, SigLIP 2, is Apache-2.0, so built DMGs can be shared. The optional
+MobileCLIP models are under Apple's research-only licence and are never bundled.

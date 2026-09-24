@@ -14,7 +14,7 @@ final class Engine: @unchecked Sendable {
 
     func start() async throws {
         // Model loading (first launch compiles them) overlaps with Qdrant startup.
-        async let loadedModels = Task.detached(priority: .userInitiated) { try Self.loadModels() }.value
+        async let loadedModels = Task.detached(priority: .userInitiated) { try await Self.loadModels() }.value
         try await qdrant.start()
         client = QdrantClient(process: qdrant)
         models = try await loadedModels
@@ -28,22 +28,30 @@ final class Engine: @unchecked Sendable {
         qdrant.stop()
     }
 
-    /// Models from config.json. A comparison model that can't be loaded is
-    /// skipped; if the search model can't be, fall back to the bundled one.
-    private static func loadModels() throws -> [EmbeddingModel] {
-        let specs = AppConfig.load().modelSpecs()
+    /// Models named in config.json, found by id among the model folders. A
+    /// comparison model that can't be loaded is skipped; if the search model
+    /// can't be, the bundled default is used instead.
+    private static func loadModels() async throws -> [EmbeddingModel] {
+        let available = Dictionary(ModelManifest.discover().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let wanted = AppConfig.load().modelIDs
         var loaded: [EmbeddingModel] = []
-        for spec in specs {
+        for id in wanted {
+            guard let manifest = available[id] else {
+                NSLog("PhotoSearch: model \"\(id)\" not found in \(AppPaths.models.path) or \(AppPaths.userModels.path)")
+                continue
+            }
             do {
-                loaded.append(try CoreMLCLIP(spec))
+                loaded.append(try await CoreMLEmbedder.load(manifest))
             } catch {
-                NSLog("PhotoSearch: skipping model \(spec.id): \(error.localizedDescription)")
+                NSLog("PhotoSearch: skipping model \(id): \(error.localizedDescription)")
             }
         }
-        if loaded.isEmpty || loaded.first?.id != specs.first?.id {
-            let fallback = ModelSpec.builtIn.first { $0.id == ModelSpec.defaultID }!
+        if loaded.first?.id != wanted.first {
+            guard let fallback = available[ModelManifest.defaultID] else {
+                throw CoreMLEmbedder.Failure.missing("the built-in search model")
+            }
             loaded.removeAll { $0.id == fallback.id }
-            loaded.insert(try CoreMLCLIP(fallback), at: 0)
+            loaded.insert(try await CoreMLEmbedder.load(fallback), at: 0)
         }
         return loaded
     }
@@ -107,6 +115,13 @@ enum CLI {
                         for r in results.prefix(8) {
                             print(String(format: "    %.3f  %@", r.score, r.url.lastPathComponent))
                         }
+                    }
+                case "--tokens":
+                    // --tokens "<text>": token ids per model, to check tokenizers against Python.
+                    i += 1
+                    for case let model as CoreMLEmbedder in engine.models {
+                        let ids = model.tokenIDs(args[i])
+                        print("\(model.id): \(Array(ids.prefix(while: { $0 != 0 }).prefix(20)))")
                     }
                 case "--labels":
                     for p in try await engine.client.scrollAll(Indexer.collection, fields: ["path", "labels"]) {
